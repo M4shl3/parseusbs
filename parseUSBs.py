@@ -2,7 +2,7 @@
 
 # Registry parser, to extract USB connection artifacts from SYSTEM, SOFTWARE, and NTUSER.dat hives
 # Author: Kathryn Hedley, khedley@khyrenz.com
-# Copyright 2024 Kathryn Hedley, Khyrenz Ltd
+# Copyright 2025 Kathryn Hedley, Khyrenz Ltd
 
 # Uses regipy offline hive parser library from Martin G. Korman: https://github.com/mkorman90/regipy/tree/master/regipy
 # Uses python-evtx parser from Willi Ballenthin: https://pypi.org/project/python-evtx/
@@ -51,6 +51,7 @@ from datetime import datetime,timedelta,timezone
 from regipy.registry import RegistryHive
 from regipy.recovery import apply_transaction_logs
 from regipy.utils import calculate_xor32_checksum
+from regipy.exceptions import RegistryKeyNotFoundException
 from binascii import hexlify
 
 #Defining object for a connection
@@ -115,7 +116,7 @@ class ExternalDevice:
 
 #Function to display tool, header
 def printHeader() -> None:
-	print("parseUSBs version 1.7")
+	print("parseUSBs version 1.8")
 	print("Registry parser, to extract USB connection artifacts from registry hives, event logs and LNK files")
 	print("Author: Kathryn Hedley, khedley@khyrenz.com")
 	print("Copyright 2025 Kathryn Hedley, Khyrenz Ltd")
@@ -163,91 +164,100 @@ def getTime(reg: RegistryHive, regkey: str) -> str:
 
 # Function to output parsed device data as CSV
 def outputCSV(dev: list[ExternalDevice], outfile: str) -> None:
-	of = open(outfile, "w")
-	
-	of.write('Value:,DeviceFriendlyName,iSerialNumber(|otherSerialNumbers),DiskID,FirstConnected,LastConnected,LastRemoved,OtherConnections,OtherDisconnections,LastDriveLetter,VolumeName,VolumeSerials,UserAccounts\n')
-	of.write('Source:,USBSTOR-FriendlyName,USBSTOR/EventLogs,SCSI,USBSTOR-0064,USBSTOR-0066,USBSTOR-0067,SOFTWARE-VolumeInfoCache/Microsoft-Windows-Partition%4Diagnostic.evtx,Microsoft-Windows-Partition%4Diagnostic.evtx,SYSTEM-MountedDevices/SOFTWARE-Windows Portable Devices,SOFTWARE-VolumeInfoCache/SOFTWARE-Windows Portable Devices,Microsoft-Windows-Partition%4Diagnostic.evtx,NTUSER-MountPoints2\n')
-	
-	for khyd in dev:
-		uacc=""
-		for khyu in khyd.userAccounts:
-			if uacc == "":
-				uacc = khyu
-			else:
-				uacc += "|"+khyu
-		oconn=""
-		for khyocn in khyd.connections:
-			if khyocn.connectionType == "Connect":
-				if oconn == "":
-					oconn = khyocn.time
+	if not dev:
+		print("No USB device connections found")
+		print()
+	else:
+		of = open(outfile, "w")
+		
+		of.write('Value:,DeviceFriendlyName,iSerialNumber(|otherSerialNumbers),DiskID,FirstConnected,LastConnected,LastRemoved,OtherConnections,OtherDisconnections,LastDriveLetter,VolumeName,VolumeSerials,UserAccounts\n')
+		of.write('Source:,USBSTOR-FriendlyName,USBSTOR/EventLogs,SCSI,USBSTOR-0064,USBSTOR-0066,USBSTOR-0067,SOFTWARE-VolumeInfoCache/Microsoft-Windows-Partition%4Diagnostic.evtx,Microsoft-Windows-Partition%4Diagnostic.evtx,SYSTEM-MountedDevices/SOFTWARE-Windows Portable Devices,SOFTWARE-VolumeInfoCache/SOFTWARE-Windows Portable Devices,Microsoft-Windows-Partition%4Diagnostic.evtx,NTUSER-MountPoints2\n')
+		
+		for khyd in dev:
+			uacc=""
+			for khyu in khyd.userAccounts:
+				if uacc == "":
+					uacc = khyu
 				else:
-					oconn += "|"+khyocn.time
-		dconn=""
-		for khydcn in khyd.connections:
-			if khydcn.connectionType == "Disconnect":
-				if dconn == "":
-					dconn = khydcn.time
-				else:
-					dconn += "|"+khydcn.time
-		vsns=""
-		for khyvs in khyd.connections:
-			if khyvs.volumeSerial != "":
-				if vsns == "":
-					vsns += khyvs.volumeSerial + " (" + khyvs.partStyle + ";" + khyvs.filesystem + ")"
-				else:
-					vsns += " | " + khyvs.volumeSerial + " (" + khyvs.partStyle + ";" + khyvs.filesystem + ")"
-		dsns=khyd.iSerialNumber
-		for khyds in khyd.altSerials:
-			if khyds != "":
-				dsns += "|"+khyds
-				
-		of.write(','+str(khyd.name)+','+dsns+','+str(khyd.diskId)+','+khyd.firstConnected+','+khyd.lastConnected+','+khyd.lastRemoved+','+oconn+','+dconn+','+str(khyd.lastDriveLetter)+','+str(khyd.volumeName)+','+vsns+','+uacc+"\n") 
-	of.close()
+					uacc += "|"+khyu
+			oconn=""
+			for khyocn in khyd.connections:
+				if khyocn.connectionType == "Connect":
+					if oconn == "":
+						oconn = khyocn.time
+					else:
+						oconn += "|"+khyocn.time
+			dconn=""
+			for khydcn in khyd.connections:
+				if khydcn.connectionType == "Disconnect":
+					if dconn == "":
+						dconn = khydcn.time
+					else:
+						dconn += "|"+khydcn.time
+			vsns=""
+			for khyvs in khyd.connections:
+				if khyvs.volumeSerial != "":
+					if vsns == "":
+						vsns += khyvs.volumeSerial + " (" + khyvs.partStyle + ";" + khyvs.filesystem + ")"
+					else:
+						vsns += " | " + khyvs.volumeSerial + " (" + khyvs.partStyle + ";" + khyvs.filesystem + ")"
+			dsns=khyd.iSerialNumber
+			for khyds in khyd.altSerials:
+				if khyds != "":
+					dsns += "|"+khyds
+					
+			of.write(','+str(khyd.name)+','+dsns+','+str(khyd.diskId)+','+khyd.firstConnected+','+khyd.lastConnected+','+khyd.lastRemoved+','+oconn+','+dconn+','+str(khyd.lastDriveLetter)+','+str(khyd.volumeName)+','+vsns+','+uacc+"\n") 
+		of.close()
 
 # Function to output parsed device data as Key/Value pairs
 def outputKV(dev: list[ExternalDevice]) -> None:
-	for khyd in dev:
-		print("Device Friendly Name:", str(khyd.name))
-		print("iSerialNumber:", str(khyd.iSerialNumber))
-		for khysns in khyd.altSerials:
-			print("Other Serial Number:", khysns)
-		print("DiskID (SCSI):", str(khyd.diskId))
-		print("First Connected:", khyd.firstConnected)
-		print("Last Connected:", khyd.lastConnected)
-		print("Last Removed:", khyd.lastRemoved)
-		for khycn in khyd.connections:
-			if khycn.connectionType == "Connect":
-				print("Other Connection:", khycn.time)
-		for khycn in khyd.connections:
-			if khycn.connectionType == "Disconnect":
-				print("Other Disconnection:", khycn.time)
-		print("Last Drive Letter:", str(khyd.lastDriveLetter))
-		print("Volume Name:", str(khyd.volumeName))
-		for khycn in khyd.connections:
-			if khycn.volumeSerial != "":
-				print("VSN:", str(khycn.volumeSerial) + " (" + str(khycn.partStyle) + ", " + str(khycn.filesystem) + ")")
-		for khyu in khyd.userAccounts:
-			print("User Account:", khyu)
+	if not dev:
+		print("No USB device connections found")
 		print()
+	else:
+		for khyd in dev:
+			print("Device Friendly Name:", str(khyd.name))
+			print("iSerialNumber:", str(khyd.iSerialNumber))
+			for khysns in khyd.altSerials:
+				print("Other Serial Number:", khysns)
+			print("DiskID (SCSI):", str(khyd.diskId))
+			print("First Connected:", khyd.firstConnected)
+			print("Last Connected:", khyd.lastConnected)
+			print("Last Removed:", khyd.lastRemoved)
+			for khycn in khyd.connections:
+				if khycn.connectionType == "Connect":
+					print("Other Connection:", khycn.time)
+			for khycn in khyd.connections:
+				if khycn.connectionType == "Disconnect":
+					print("Other Disconnection:", khycn.time)
+			print("Last Drive Letter:", str(khyd.lastDriveLetter))
+			print("Volume Name:", str(khyd.volumeName))
+			for khycn in khyd.connections:
+				if khycn.volumeSerial != "":
+					print("VSN:", str(khycn.volumeSerial) + " (" + str(khycn.partStyle) + ", " + str(khycn.filesystem) + ")")
+			for khyu in khyd.userAccounts:
+				print("User Account:", khyu)
+			print()
 
 # Function to output timeline of connections & disconnections as CSV
 def outputTimeline(kdevs: list[ExternalDevice], outf: str) -> None:
-	of = open(outf, "w")
-	
-	#Writing out column headers
-	of.write('Timestamp,Type,DeviceFriendlyName,iSerialNumber,DiskID,DriveLetter,VolumeName,VolumeSerial,PartitionStyle,Filesystem,VolumeCount,FormatMethod, DeviceSize,SafelyEjected\n')
-	
-	for kdv in kdevs:	
-		for kdc in kdv.connections:
-			if timesInRange(kdc.time, kdv.firstConnected, 1) and str(kdc.connectionType) == "Connect":
-				of.write(kdv.firstConnected+",First Connect,"+str(kdv.name)+","+str(kdv.iSerialNumber)+","+str(kdv.diskId)+","+str(kdc.driveLetter)+","+str(kdc.volumeLabel)+","+str(kdc.volumeSerial)+","+str(kdc.partStyle)+","+str(kdc.filesystem)+","+str(kdc.volumeCount)+","+(kdc.formatMethod)+","+str(kdc.deviceSize)+","+str(kdc.ejected)+"\n")
-			elif kdv.lastConnected != "" and timesInRange(kdc.time, kdv.lastConnected, 1) and str(kdc.connectionType) == "Connect":
-				of.write(kdv.lastConnected+",Last Connect,"+str(kdv.name)+","+str(kdv.iSerialNumber)+","+str(kdv.diskId)+","+str(kdc.driveLetter)+","+str(kdc.volumeLabel)+","+str(kdc.volumeSerial)+","+str(kdc.partStyle)+","+str(kdc.filesystem)+","+str(kdc.volumeCount)+","+(kdc.formatMethod)+","+str(kdc.deviceSize)+","+str(kdc.ejected)+"\n")
-			elif kdv.lastRemoved != "" and timesInRange(kdc.time, kdv.lastRemoved, 1) and str(kdc.connectionType) == "Disconnect":
-				of.write(kdv.lastRemoved+",Last Disconnect,"+str(kdv.name)+","+str(kdv.iSerialNumber)+","+str(kdv.diskId)+","+str(kdc.driveLetter)+","+str(kdc.volumeLabel)+","+str(kdc.volumeSerial)+","+str(kdc.partStyle)+","+str(kdc.filesystem)+","+str(kdc.volumeCount)+","+(kdc.formatMethod)+","+str(kdc.deviceSize)+","+str(kdc.ejected)+"\n")
-			else:
-				of.writelines(kdc.time+","+str(kdc.connectionType)+","+str(kdv.name)+","+str(kdv.iSerialNumber)+","+str(kdv.diskId)+","+str(kdc.driveLetter)+","+str(kdc.volumeLabel)+","+str(kdc.volumeSerial)+","+str(kdc.partStyle)+","+str(kdc.filesystem)+","+str(kdc.volumeCount)+","+(kdc.formatMethod)+","+str(kdc.deviceSize)+","+str(kdc.ejected)+"\n")
-	of.close()
+	if kdevs:
+		of = open(outf, "w")
+		
+		#Writing out column headers
+		of.write('Timestamp,Type,DeviceFriendlyName,iSerialNumber,DiskID,DriveLetter,VolumeName,VolumeSerial,PartitionStyle,Filesystem,VolumeCount,FormatMethod, DeviceSize,SafelyEjected\n')
+		
+		for kdv in kdevs:	
+			for kdc in kdv.connections:
+				if timesInRange(kdc.time, kdv.firstConnected, 1) and str(kdc.connectionType) == "Connect":
+					of.write(kdv.firstConnected+",First Connect,"+str(kdv.name)+","+str(kdv.iSerialNumber)+","+str(kdv.diskId)+","+str(kdc.driveLetter)+","+str(kdc.volumeLabel)+","+str(kdc.volumeSerial)+","+str(kdc.partStyle)+","+str(kdc.filesystem)+","+str(kdc.volumeCount)+","+(kdc.formatMethod)+","+str(kdc.deviceSize)+","+str(kdc.ejected)+"\n")
+				elif kdv.lastConnected != "" and timesInRange(kdc.time, kdv.lastConnected, 1) and str(kdc.connectionType) == "Connect":
+					of.write(kdv.lastConnected+",Last Connect,"+str(kdv.name)+","+str(kdv.iSerialNumber)+","+str(kdv.diskId)+","+str(kdc.driveLetter)+","+str(kdc.volumeLabel)+","+str(kdc.volumeSerial)+","+str(kdc.partStyle)+","+str(kdc.filesystem)+","+str(kdc.volumeCount)+","+(kdc.formatMethod)+","+str(kdc.deviceSize)+","+str(kdc.ejected)+"\n")
+				elif kdv.lastRemoved != "" and timesInRange(kdc.time, kdv.lastRemoved, 1) and str(kdc.connectionType) == "Disconnect":
+					of.write(kdv.lastRemoved+",Last Disconnect,"+str(kdv.name)+","+str(kdv.iSerialNumber)+","+str(kdv.diskId)+","+str(kdc.driveLetter)+","+str(kdc.volumeLabel)+","+str(kdc.volumeSerial)+","+str(kdc.partStyle)+","+str(kdc.filesystem)+","+str(kdc.volumeCount)+","+(kdc.formatMethod)+","+str(kdc.deviceSize)+","+str(kdc.ejected)+"\n")
+				else:
+					of.writelines(kdc.time+","+str(kdc.connectionType)+","+str(kdv.name)+","+str(kdv.iSerialNumber)+","+str(kdv.diskId)+","+str(kdc.driveLetter)+","+str(kdc.volumeLabel)+","+str(kdc.volumeSerial)+","+str(kdc.partStyle)+","+str(kdc.filesystem)+","+str(kdc.volumeCount)+","+(kdc.formatMethod)+","+str(kdc.deviceSize)+","+str(kdc.ejected)+"\n")
+		of.close()
 	
 # Function to check if iSerialNumber in array of ExternalDevice objects
 def snInDevArray(ksn: str, kdevarr: list[ExternalDevice]) -> bool:
@@ -448,6 +458,15 @@ def removeAmpEnd(kystr1: str) -> str:
 		return kystr1[:-remove]
 	else:
 		return kystr1
+		
+# Convert string timestamp to datetime value
+def convertTimestamp(khyts: str) -> datetime:
+	try:
+		return datetime.strptime(khyts,'%Y-%m-%d %H:%M:%S.%f%z').astimezone(timezone.utc).isoformat()
+	except ValueError:
+		#No timezone in string
+		return datetime.strptime(khyts,'%Y-%m-%d %H:%M:%S.%f').replace(tzinfo=timezone.utc).isoformat()
+	return ""   
 
 
 ### ---MAIN function--- ###
@@ -517,7 +536,7 @@ if __name__ == "__main__":
 
 		#Checking if volume is full mounted image or a KAPE triage image & getting drive letter it's mounted as...
 		dl=""
-		items=os.popen('ls -l '+kmtvol+' | awk \'{print $9}\'').read()
+		items = os.popen('ls -l '+kmtvol+' 2>/dev/null | awk \'{print $9}\'').read()
 		for i in items.split('\n'):
 			if len(i) == 1:
 				dl=i
@@ -588,450 +607,491 @@ if __name__ == "__main__":
 	print("currentcontrolset identified as " + khycurrentcontrolset)
 
 	# Iterating over SYSTEM\currentcontrolset\Enum\USBSTOR key...
-	for kusbstorkey in SYSTEM.get_key("SYSTEM\\" + khycurrentcontrolset + "\\Enum\\USBSTOR").iter_subkeys():
-		for kusbstorsnkey in SYSTEM.get_key("SYSTEM\\" + khycurrentcontrolset + "\\Enum\\USBSTOR\\" + kusbstorkey.name).iter_subkeys():	
-			newDev=ExternalDevice()
-			#Get device friendly name
-			newDev.name = kusbstorsnkey.get_value('FriendlyName')
-			
-			#Get device serial number, removing all after the last '&' character, including the '&' itself
-			newDev.iSerialNumber = removeAmpEnd(kusbstorsnkey.name)
-			
-			#Get device timestamps (if present)
-			newDev.firstConnected = getTime(SYSTEM, "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\USBSTOR\\" + kusbstorkey.name + "\\" + kusbstorsnkey.name + "\\Properties\\{83da6326-97a6-4088-9453-a1923f573b29}\\0064")
-			newDev.lastConnected = getTime(SYSTEM, "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\USBSTOR\\" + kusbstorkey.name + "\\" + kusbstorsnkey.name + "\\Properties\\{83da6326-97a6-4088-9453-a1923f573b29}\\0066")
-			newDev.lastRemoved = getTime(SYSTEM, "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\USBSTOR\\" + kusbstorkey.name + "\\" + kusbstorsnkey.name + "\\Properties\\{83da6326-97a6-4088-9453-a1923f573b29}\\0067")
-			
-			#Adding device to array if serial number not blank
-			if newDev.iSerialNumber:
-				devices.append(newDev)
+	usbstorkhypath = "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\USBSTOR"
+	try:
+		usbstorkhy = SYSTEM.get_key(usbstorkhypath)
+		for kusbstorkey in usbstorkhy.iter_subkeys():
+			for kusbstorsnkey in SYSTEM.get_key(usbstorkhypath + "\\" + kusbstorkey.name).iter_subkeys():	
+				newDev=ExternalDevice()
+				#Get device friendly name
+				newDev.name = kusbstorsnkey.get_value('FriendlyName')
+				
+				#Get device serial number, removing all after the last '&' character, including the '&' itself
+				newDev.iSerialNumber = removeAmpEnd(kusbstorsnkey.name)
+				
+				#Get device timestamps (if present)
+				newDev.firstConnected = getTime(SYSTEM, "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\USBSTOR\\" + kusbstorkey.name + "\\" + kusbstorsnkey.name + "\\Properties\\{83da6326-97a6-4088-9453-a1923f573b29}\\0064")
+				newDev.lastConnected = getTime(SYSTEM, "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\USBSTOR\\" + kusbstorkey.name + "\\" + kusbstorsnkey.name + "\\Properties\\{83da6326-97a6-4088-9453-a1923f573b29}\\0066")
+				newDev.lastRemoved = getTime(SYSTEM, "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\USBSTOR\\" + kusbstorkey.name + "\\" + kusbstorsnkey.name + "\\Properties\\{83da6326-97a6-4088-9453-a1923f573b29}\\0067")
+				
+				#Adding device to array if serial number not blank
+				if newDev.iSerialNumber:
+					devices.append(newDev)
+	except RegistryKeyNotFoundException:
+		print(f"Key not found: {usbstorkhypath} - parsing skipped")
 			
 	# Iterating over SYSTEM\currentcontrolset\Enum\USB key looking for SCSI devices...
-	for kusbkey in SYSTEM.get_key("SYSTEM\\" + khycurrentcontrolset + "\\Enum\\USB").iter_subkeys():
-		for kusbsubkey in SYSTEM.get_key("SYSTEM\\" + khycurrentcontrolset + "\\Enum\\USB\\" + kusbkey.name).iter_subkeys():
-			if kusbsubkey.name.startswith('MSFT30'):
-				#SCSI device!
-				khyzDev=ExternalDevice()
-				#Set iSerialNumber
-				khyzDev.iSerialNumber = kusbsubkey.name[6:]
-				
-				#Get ParentIdPrefix to map to SCSI key
-				kdevParentId = kusbsubkey.get_value('ParentIdPrefix')
-				
-				# Iterating over SYSTEM\currentcontrolset\Enum\SCSI key...
-				for kscsikey in SYSTEM.get_key("SYSTEM\\" + khycurrentcontrolset + "\\Enum\\SCSI").iter_subkeys():
-					for kscsisubkey in SYSTEM.get_key("SYSTEM\\" + khycurrentcontrolset + "\\Enum\\SCSI\\" + kscsikey.name).iter_subkeys():
-						#Only adding if has Parent ID - e.g. vmware devices can be added here without a Parent ID - can't link to SCSI key
-						if kdevParentId is not None and kscsisubkey.name.startswith(kdevParentId):
-							#Get device friendly name
-							khyzDev.name = kscsisubkey.get_value('FriendlyName')
-							
-							#Get Disk ID to map to Volume name
-							khyzDev.setDiskId(SYSTEM.get_key("SYSTEM\\" + khycurrentcontrolset + "\\Enum\\SCSI\\" + kscsikey.name + "\\" + kscsisubkey.name + "\\Device Parameters\\Partmgr").get_value('DiskId'))
-							
-							#Get device timestamps (if present)
-							khyzDev.firstConnected = getTime(SYSTEM, "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\SCSI\\" + kscsikey.name + "\\" + kscsisubkey.name + "\\Properties\\{83da6326-97a6-4088-9453-a1923f573b29}\\0064")
-							khyzDev.lastConnected = getTime(SYSTEM, "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\SCSI\\" + kscsikey.name + "\\" + kscsisubkey.name + "\\Properties\\{83da6326-97a6-4088-9453-a1923f573b29}\\0066")
-							khyzDev.lastRemoved = getTime(SYSTEM, "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\SCSI\\" + kscsikey.name + "\\" + kscsisubkey.name + "\\Properties\\{83da6326-97a6-4088-9453-a1923f573b29}\\0067")
-							
-				#Adding device to array if serial number is not blank & not already in array
-				if khyzDev.iSerialNumber and not snInDevArray(khyzDev.iSerialNumber, devices):
-					devices.append(khyzDev)
-
-	# Iterating over SYSTEM\MountedDevices key to determine last mounted drive letters...
-	for kmdval in SYSTEM.get_key("SYSTEM\MountedDevices").get_values():
-		if kmdval.name.startswith('\DosDevices\\'):		
-			try:
-				khexmd=hexlify(kmdval.value)
-				for d in devices:
-					khexsn=bytes(d.iSerialNumber.encode('utf-16le').hex(), 'utf8')
-					if khexsn in khexmd: 
-						#Last drive letter found - add to devices info
-						d.setLastDriveLetter(kmdval.name[-2:]+'\\')
-			except:
-				#empty value
-				continue
+	usbkhypath = "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\USB"
+	uaspkhypath = "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\SCSI"
+	try:
+		usbkhy = SYSTEM.get_key(usbkhypath)
+		for kusbkey in usbkhy.iter_subkeys():
+			for kusbsubkey in SYSTEM.get_key("SYSTEM\\" + khycurrentcontrolset + "\\Enum\\USB\\" + kusbkey.name).iter_subkeys():
+				if kusbsubkey.name.startswith('MSFT30'):
+					#SCSI device!
+					khyzDev=ExternalDevice()
+					#Set iSerialNumber
+					khyzDev.iSerialNumber = kusbsubkey.name[6:]
+					
+					#Get ParentIdPrefix to map to SCSI key
+					kdevParentId = kusbsubkey.get_value('ParentIdPrefix')
+					
+					# Iterating over SYSTEM\currentcontrolset\Enum\SCSI key...
+					try:
+						uaspkhy = SYSTEM.get_key(uaspkhypath)
+						for kscsikey in uaspkhy.iter_subkeys():
+							for kscsisubkey in SYSTEM.get_key("SYSTEM\\" + khycurrentcontrolset + "\\Enum\\SCSI\\" + kscsikey.name).iter_subkeys():
+								#Only adding if has Parent ID - e.g. vmware devices can be added here without a Parent ID - can't link to SCSI key
+								if kdevParentId is not None and kscsisubkey.name.startswith(kdevParentId):
+									#Get device friendly name
+									khyzDev.name = kscsisubkey.get_value('FriendlyName')
+									
+									#Get Disk ID to map to Volume name
+									khyzDev.setDiskId(SYSTEM.get_key("SYSTEM\\" + khycurrentcontrolset + "\\Enum\\SCSI\\" + kscsikey.name + "\\" + kscsisubkey.name + "\\Device Parameters\\Partmgr").get_value('DiskId'))
+									
+									#Get device timestamps (if present)
+									khyzDev.firstConnected = getTime(SYSTEM, "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\SCSI\\" + kscsikey.name + "\\" + kscsisubkey.name + "\\Properties\\{83da6326-97a6-4088-9453-a1923f573b29}\\0064")
+									khyzDev.lastConnected = getTime(SYSTEM, "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\SCSI\\" + kscsikey.name + "\\" + kscsisubkey.name + "\\Properties\\{83da6326-97a6-4088-9453-a1923f573b29}\\0066")
+									khyzDev.lastRemoved = getTime(SYSTEM, "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\SCSI\\" + kscsikey.name + "\\" + kscsisubkey.name + "\\Properties\\{83da6326-97a6-4088-9453-a1923f573b29}\\0067")
+									
+						#Adding device to array if serial number is not blank & not already in array
+						if khyzDev.iSerialNumber and not snInDevArray(khyzDev.iSerialNumber, devices):
+							devices.append(khyzDev)
+					except RegistryKeyNotFoundException:
+						print(f"Key not found: {uaspkhypath} - parsing skipped")		
+	except RegistryKeyNotFoundException:
+		print(f"Key not found: {usbkhypath} - parsing skipped")
 		
-		#Extracting disk GUID values to search NTUSER hive, only if NTUSER.dat hive provided & valid
-		if ntuflag:
-			if kmdval.name.startswith('\??\Volume{'):
+	# Iterating over SYSTEM\MountedDevices key to determine last mounted drive letters...
+	mdlkhypath = "SYSTEM\\MountedDevices"
+	try:
+		mdlkhy = SYSTEM.get_key(mdlkhypath)
+		for kmdval in mdlkhy.get_values():
+			if kmdval.name.startswith('\\DosDevices\\\\'):		
 				try:
 					khexmd=hexlify(kmdval.value)
 					for d in devices:
 						khexsn=bytes(d.iSerialNumber.encode('utf-16le').hex(), 'utf8')
 						if khexsn in khexmd: 
-							#Disk GUID found - compare against NTUSER hive
-							diskGuid=kmdval.name[-38:]
-							
-							#Iterating NTUSER.DAT hives
-							for NTU in NTUSER:
-								#Getting user account name from NTUSER.DAT\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders\Desktop
-								kusername=NTU.get_key('NTUSER.DAT\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders').get_value('Desktop')
-								
-								#Output is of format C:\Users\<user>\Desktop -> extracting username
-								kusername=kusername.split('\\')[2]
-								
-								#Checking NTUSER.DAT\Software\Microsoft\Windows\CurrentVersion\Explorer\MountPoints2 for disk GUID
-								for khymp in NTU.get_key('NTUSER.DAT\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2').iter_subkeys():
-									if khymp.name == diskGuid:
-										d.addUser(kusername)
-										break
+							#Last drive letter found - add to devices info
+							d.setLastDriveLetter(kmdval.name[-2:]+'\\')
 				except:
 					#empty value
 					continue
-
+			
+			#Extracting disk GUID values to search NTUSER hive, only if NTUSER.dat hive provided & valid
+			if ntuflag:
+				if kmdval.name.startswith('\\??\\Volume{'):
+					try:
+						khexmd=hexlify(kmdval.value)
+						for d in devices:
+							khexsn=bytes(d.iSerialNumber.encode('utf-16le').hex(), 'utf8')
+							if khexsn in khexmd: 
+								#Disk GUID found - compare against NTUSER hive
+								diskGuid=kmdval.name[-38:]
+								
+								#Iterating NTUSER.DAT hives
+								for NTU in NTUSER:
+									#Getting user account name from NTUSER.DAT\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders\Desktop
+									kusername=NTU.get_key('NTUSER.DAT\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders').get_value('Desktop')
+									
+									#Output is of format C:\Users\<user>\Desktop -> extracting username
+									kusername=kusername.split('\\')[2]
+									
+									#Checking NTUSER.DAT\Software\Microsoft\Windows\CurrentVersion\Explorer\MountPoints2 for disk GUID
+									for khymp in NTU.get_key('NTUSER.DAT\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2').iter_subkeys():
+										if khymp.name == diskGuid:
+											d.addUser(kusername)
+											break
+					except:
+						#empty value
+						continue
+	except RegistryKeyNotFoundException:
+		print(f"Key not found: {mdlkhypath} - parsing skipped")
+		
 	# Iterating over SOFTWARE\Microsoft\Windows Portable Devices\Devices to determine volume name or last drive letter...
-	for kwpdkey in SOFTWARE.get_key("SOFTWARE\\Microsoft\\Windows Portable Devices\\Devices").iter_subkeys():
-		for kdev in devices:
-			if kdev.iSerialNumber.lower() in kwpdkey.name.lower(): 
-				#Match to USB device in array
-				volName = kwpdkey.get_value('FriendlyName')
-				if ":\\" in volName:
-					#Drive letter, not volume name - add to devices info if not already added
-					if kdev.lastDriveLetter == "":
-						kdev.setLastDriveLetter(volName)
-				else: #Volume name
-					kdev.setVolumeName(volName)
-			elif kdev.getDiskId().lower() and kdev.getDiskId().lower() in kwpdkey.name.lower():
-				#Match to USB device on Disk ID (SCSI)
-				volName = kwpdkey.get_value('FriendlyName')
-				if ":\\" in volName:
-					#Drive letter, not volume name - add to devices info if not already added
-					if kdev.lastDriveLetter == "":
-						kdev.setLastDriveLetter(volName)
-				else: #Volume name
-					kdev.setVolumeName(volName)
-
+	wpdkhypath = "SOFTWARE\\Microsoft\\Windows Portable Devices\\Devices"
+	try:
+		wpdkhy = SOFTWARE.get_key(wpdkhypath)
+		for kwpdkey in wpdkhy.iter_subkeys():
+			for kdev in devices:
+				if kdev.iSerialNumber.lower() in kwpdkey.name.lower(): 
+					#Match to USB device in array
+					volName = kwpdkey.get_value('FriendlyName')
+					if ":\\" in volName:
+						#Drive letter, not volume name - add to devices info if not already added
+						if kdev.lastDriveLetter == "":
+							kdev.setLastDriveLetter(volName)
+					else: #Volume name
+						kdev.setVolumeName(volName)
+				elif kdev.getDiskId().lower() and kdev.getDiskId().lower() in kwpdkey.name.lower():
+					#Match to USB device on Disk ID (SCSI)
+					volName = kwpdkey.get_value('FriendlyName')
+					if ":\\" in volName:
+						#Drive letter, not volume name - add to devices info if not already added
+						if kdev.lastDriveLetter == "":
+							kdev.setLastDriveLetter(volName)
+					else: #Volume name
+						kdev.setVolumeName(volName)
+	except RegistryKeyNotFoundException:
+		print(f"Key not found: {wpdkhypath} - parsing skipped")
+	 
 	# Iterating over SYSTEM\CurrentControlSet\Enum\SWD\WPDBUSENUM to determine volume name or last drive letter...
-	for kkwpdkey in SYSTEM.get_key("SYSTEM\\" + khycurrentcontrolset + "\\Enum\\SWD\\WPDBUSENUM").iter_subkeys():
-		#Checking if key name contains iSerialNumber (>1 hash symbol) or DiskID (1 hash symbol)
-		ksnum = ""
-		kdid = ""
-		if kkwpdkey.name.count('#') > 1:
-			ksnum = removeAmpEnd(kkwpdkey.name.split('#')[2])
-		else:
-			kdid = kkwpdkey.name.split('#')[0]
+	swdkhypath = "SYSTEM\\" + khycurrentcontrolset + "\\Enum\\SWD\\WPDBUSENUM"
+	try:
+		swdkhy = SYSTEM.get_key(swdkhypath)
+		for kkwpdkey in swdkhy.iter_subkeys():
+			#Checking if key name contains iSerialNumber (>1 hash symbol) or DiskID (1 hash symbol)
+			ksnum = ""
+			kdid = ""
+			if kkwpdkey.name.count('#') > 1:
+				ksnum = removeAmpEnd(kkwpdkey.name.split('#')[2])
+			else:
+				kdid = kkwpdkey.name.split('#')[0]
+			
+			for kdev in devices:
+				if ksnum != "" and kdev.iSerialNumber.lower() in ksnum.lower(): 
+					#Match to USB device in array - get data in FriendlyName value
+					volName = kkwpdkey.get_value('FriendlyName')
+					if ":\\" in volName:
+						#Drive letter, not volume name - add to devices info if not already added
+						if kdev.lastDriveLetter == "":
+							kdev.setLastDriveLetter(volName)
+					else: #Volume name
+						if kdev.volumeName == "":
+							kdev.setVolumeName(volName)
+				elif kdid != "" and kdev.getDiskId().lower() and kdev.getDiskId().lower() in kdid.lower():
+					#Match to USB device on Disk ID (SCSI)
+					volName = kkwpdkey.get_value('FriendlyName')
+					if ":\\" in volName:
+						#Drive letter, not volume name - add to devices info if not already added
+						if kdev.lastDriveLetter == "":
+							kdev.setLastDriveLetter(volName)
+					else: #Volume name
+						if kdev.volumeName == "":
+							kdev.setVolumeName(volName)
+	except RegistryKeyNotFoundException:
+		print(f"Key not found: {swdkhypath} - parsing skipped")
 		
-		for kdev in devices:
-			if ksnum != "" and kdev.iSerialNumber.lower() in ksnum.lower(): 
-				#Match to USB device in array - get data in FriendlyName value
-				volName = kkwpdkey.get_value('FriendlyName')
-				if ":\\" in volName:
-					#Drive letter, not volume name - add to devices info if not already added
-					if kdev.lastDriveLetter == "":
-						kdev.setLastDriveLetter(volName)
-				else: #Volume name
-					if kdev.volumeName == "":
-						kdev.setVolumeName(volName)
-			elif kdid != "" and kdev.getDiskId().lower() and kdev.getDiskId().lower() in kdid.lower():
-				#Match to USB device on Disk ID (SCSI)
-				volName = kkwpdkey.get_value('FriendlyName')
-				if ":\\" in volName:
-					#Drive letter, not volume name - add to devices info if not already added
-					if kdev.lastDriveLetter == "":
-						kdev.setLastDriveLetter(volName)
-				else: #Volume name
-					if kdev.volumeName == "":
-						kdev.setVolumeName(volName)
-
 	# Iterating over SOFTWARE\Microsoft\Windows Search\VolumeInfoCache to try & match up drive letter with known volume name...
-	for kvickey in SOFTWARE.get_key("SOFTWARE\\Microsoft\\Windows Search\\VolumeInfoCache").iter_subkeys():
-		#Get Drive Letter & Volume name for device
-		kdletter = kvickey.name + '\\'
-		kvname = kvickey.get_value('VolumeLabel')
-		#Getting another potential connection time for device
-		klwtime = convertWin64time(kvickey.header.last_modified)
-		
-		#Attempt to link on volume name to assign drive letter & other connection time
-		for kdv in devices:
-			if kdv.volumeName == kvname:
-				if kdv.lastDriveLetter == "":
-					kdv.setLastDriveLetter(kdletter)
-				
-				#Only adding other connection time to list if not already present
-				exists=False
-				for c in d.getConnections():
-					if c.time == klwtime:
-						exists = True
-				if not exists:
-					dc = DeviceConnection()
-					dc.time = klwtime
-					dc.connectionType = "Connect"
-					dc.volumeLabel = kvname
-					if kdletter != "":
-						dc.driveLetter = kdletter
-					d.addConnection(dc)
-					break
+	vickhypath = "SOFTWARE\\Microsoft\\Windows Search\\VolumeInfoCache"
+	try:
+		swdkhy = SOFTWARE.get_key(vickhypath)
+		for kvickey in swdkhy.iter_subkeys():
+			#Get Drive Letter & Volume name for device
+			kdletter = kvickey.name + '\\'
+			kvname = kvickey.get_value('VolumeLabel')
+			#Getting another potential connection time for device
+			klwtime = convertWin64time(kvickey.header.last_modified)
+			
+			#Attempt to link on volume name to assign drive letter & other connection time
+			for kdv in devices:
+				if kdv.volumeName == kvname:
+					if kdv.lastDriveLetter == "":
+						kdv.setLastDriveLetter(kdletter)
+					
+					#Only adding other connection time to list if not already present
+					exists=False
+					for c in d.getConnections():
+						if c.time == klwtime:
+							exists = True
+					if not exists:
+						dc = DeviceConnection()
+						dc.time = klwtime
+						dc.connectionType = "Connect"
+						dc.volumeLabel = kvname
+						if kdletter != "":
+							dc.driveLetter = kdletter
+						d.addConnection(dc)
+						break
+	except RegistryKeyNotFoundException:
+		print(f"Key not found: {vickhypath} - parsing skipped")
 
 	#if volume option is provided, find & parse event logs for connection & disconnection events
 	if kmtvol:
-		print("Opening: ", partDiagEvtx)
-		with evtx.Evtx(partDiagEvtx) as evtxlog:
-			for evtxrecord in evtxlog.records():
-				#print(evtxrecord.xml())
-				root = minidom.parseString(evtxrecord.xml())
-				eId=""
-				eTime=""
-				parent=""
-				sn=""
-				make=""
-				model=""
-				vsn=""
-				vfs=""
-				vfm=""
-				partStyle=""
-				safeEject=""
-				connect=False
-				disconnect=False
-				exists=False
+		if os.path.exists(partDiagEvtx):
+			print("Opening: ", partDiagEvtx)
+			with evtx.Evtx(partDiagEvtx) as evtxlog:
+				for evtxrecord in evtxlog.records():
+					#print(evtxrecord.xml())
+					root = minidom.parseString(evtxrecord.xml())
+					eId=""
+					eTime=""
+					parent=""
+					sn=""
+					make=""
+					model=""
+					vsn=""
+					vfs=""
+					vfm=""
+					partStyle=""
+					safeEject=""
+					connect=False
+					disconnect=False
+					exists=False
 
-				#Getting Event ID & time	
-				sysinfo = root.getElementsByTagName('System')[0]
-				eId = sysinfo.getElementsByTagName('EventID')[0].firstChild.nodeValue
-				
-				if eId == partDiagEvtId:
-					eTime = sysinfo.getElementsByTagName('TimeCreated')[0].attributes['SystemTime'].value
+					#Getting Event ID & time	
+					sysinfo = root.getElementsByTagName('System')[0]
+					eId = sysinfo.getElementsByTagName('EventID')[0].firstChild.nodeValue
 					
-					elements = root.getElementsByTagName('Data')
-					for element in elements:
-						if element.attributes['Name'].value == "ParentId":
-							try:
-								parent = element.firstChild.nodeValue
-								#get Serial number in ParentId - everything after last '\'
-								parent_sn = stripUaspMarker(element.firstChild.nodeValue[element.firstChild.nodeValue.rindex('\\')+1:])
-							except:
-								pass
-						if element.attributes['Name'].value == "SerialNumber":
-							try:
-								sn = stripUaspMarker(element.firstChild.nodeValue)
-							except:
-								pass
-						if element.attributes['Name'].value == "Manufacturer":
-							try:
-								make = element.firstChild.nodeValue
-							except:
-								pass
-						if element.attributes['Name'].value == "Model":
-							try:
-								model = element.firstChild.nodeValue
-							except:
-								pass
-						if element.attributes['Name'].value == "PartitionStyle":
-							try:
-								partStyle = element.firstChild.nodeValue
-							except:
-								pass
-						if element.attributes['Name'].value == "UserRemovalPolicy":
-							try:
-								safeEject = element.firstChild.nodeValue
-							except:
-								pass
-						if element.attributes['Name'].value == "Vbr0":
-							try:
-								hexvbr = base64.b64decode(element.firstChild.nodeValue).hex()
-								vfs=getFSFromVbr(hexvbr)
-								vsn=getVsnFromVbr(hexvbr)
-								vfm=getOEMFromVbr(hexvbr)
-								#Only USB connection EID 1006 events log the VBR, not disconnection events
-								connect=True
-							except:
-								#No VBR in event entry, so this is a disconnection event
-								disconnect=True
-								pass
-					if parent.startswith("USB\\"):
-						#Setting partition style to either MBR or GPT
-						if int(partStyle) == 0:
-							partStyle = "MBR"
-						elif int(partStyle) == 1:
-							partStyle = "GPT"
-						else:
-							partStyle = ""
-							
-						#Matching this event info with Registry info for this device
-						for d in devices:
-							if (sn == d.iSerialNumber) or (parent_sn == d.iSerialNumber):
-								#Adding info to device record - if not already present
-								exists=False
-								isoETime=datetime.strptime(eTime,'%Y-%m-%d %H:%M:%S.%f').replace(tzinfo=timezone.utc).isoformat()
+					if eId == partDiagEvtId:
+						eTime = sysinfo.getElementsByTagName('TimeCreated')[0].attributes['SystemTime'].value
+						
+						elements = root.getElementsByTagName('Data')
+						for element in elements:
+							if element.attributes['Name'].value == "ParentId":
+								try:
+									parent = element.firstChild.nodeValue
+									#get Serial number in ParentId - everything after last '\'
+									parent_sn = stripUaspMarker(element.firstChild.nodeValue[element.firstChild.nodeValue.rindex('\\')+1:])
+								except:
+									pass
+							if element.attributes['Name'].value == "SerialNumber":
+								try:
+									sn = stripUaspMarker(element.firstChild.nodeValue)
+								except:
+									pass
+							if element.attributes['Name'].value == "Manufacturer":
+								try:
+									make = element.firstChild.nodeValue
+								except:
+									pass
+							if element.attributes['Name'].value == "Model":
+								try:
+									model = element.firstChild.nodeValue
+								except:
+									pass
+							if element.attributes['Name'].value == "PartitionStyle":
+								try:
+									partStyle = element.firstChild.nodeValue
+								except:
+									pass
+							if element.attributes['Name'].value == "UserRemovalPolicy":
+								try:
+									safeEject = element.firstChild.nodeValue
+								except:
+									pass
+							if element.attributes['Name'].value == "Vbr0":
+								try:
+									hexvbr = base64.b64decode(element.firstChild.nodeValue).hex()
+									vfs=getFSFromVbr(hexvbr)
+									vsn=getVsnFromVbr(hexvbr)
+									vfm=getOEMFromVbr(hexvbr)
+									#Only USB connection EID 1006 events log the VBR, not disconnection events
+									connect=True
+								except:
+									#No VBR in event entry, so this is a disconnection event
+									disconnect=True
+									pass
+						if parent.startswith("USB\\"):
+							#Setting partition style to either MBR or GPT
+							if int(partStyle) == 0:
+								partStyle = "MBR"
+							elif int(partStyle) == 1:
+								partStyle = "GPT"
+							else:
+								partStyle = ""
 								
-								#Checking for other info gaps from the Registry
-								if str(d.name) == "None" or str(d.name) == "":
-									d.name = make + " " + model
-								
-								if connect:
-									for c in d.getConnections():
-										#Checking if event within 2 secs has already been found & recorded
-										if (timesInRange(isoETime, c.time, 2)) and c.connectionType == "Connect":
-											exists=True
-											if dc.volumeSerial == "":
-												dc.volumeSerial = vsn
-											if dc.filesystem == "":
-												dc.filesystem = vfs
-											if dc.formatMethod == "":
-												dc.formatMethod = vfm
-											if dc.partStyle == "":
-												dc.partStyle = partStyle
-											break
+							#Matching this event info with Registry info for this device
+							for d in devices:
+								if (sn == d.iSerialNumber) or (parent_sn == d.iSerialNumber):
+									#Adding info to device record - if not already present
+									exists=False
+									isoETime = convertTimestamp(eTime)
+																	
+									#Checking for other info gaps from the Registry
+									if str(d.name) == "None" or str(d.name) == "":
+										d.name = make + " " + model
+									
+									if connect:
+										for c in d.getConnections():
+											#Checking if event within 2 secs has already been found & recorded
+											if (timesInRange(isoETime, c.time, 2)) and c.connectionType == "Connect":
+												exists=True
+												if dc.volumeSerial == "":
+													dc.volumeSerial = vsn
+												if dc.filesystem == "":
+													dc.filesystem = vfs
+												if dc.formatMethod == "":
+													dc.formatMethod = vfm
+												if dc.partStyle == "":
+													dc.partStyle = partStyle
+												break
 
+										if not exists:
+											dc = DeviceConnection()
+											dc.time = isoETime
+											dc.connectionType = "Connect"
+											dc.volumeSerial = vsn
+											dc.filesystem = vfs
+											dc.formatMethod = vfm
+											dc.partStyle = partStyle
+											d.addConnection(dc)
+									if disconnect:
+										for c in d.getConnections():
+											#Checking if event within 2 secs has already been found & recorded
+											if (timesInRange(isoETime, c.time, 2)) and c.connectionType == "Disconnect":
+												exists=True
+												if dc.ejected == "":
+													dc.ejected = safeEject
+												break
+										if not exists:
+											dc = DeviceConnection()
+											dc.time = isoETime
+											dc.connectionType = "Disconnect"
+											dc.ejected = safeEject
+											d.addConnection(dc)
+										
+									#Adding extra s/n if the two don't match (and if not already noted)
+									if sn != parent_sn:
+										if parent_sn == d.iSerialNumber and not sn in d.altSerials:
+											d.addAltSerial(sn)
+										elif sn == d.iSerialNumber and not parent_sn in d.altSerials:
+											d.addAltSerial(parent_sn)
+		else:
+			print(f"File not found: {partDiagEvtx} - parsing skipped")
+			
+		#StorSvc events only found to be recorded on USB connection, not disconnection
+		if os.path.exists(storsvcEvtx):
+			print("Opening: ", storsvcEvtx)
+			with evtx.Evtx(storsvcEvtx) as storevtxlog:
+				for evtxrecord in storevtxlog.records():
+					#print(evtxrecord.xml())
+					root = minidom.parseString(evtxrecord.xml())
+					eId=""
+					eTime=""
+					parent=""
+					sn=""
+					make=""
+					model=""
+					fs=""
+					partStyle=""
+					volCount=""
+					devSize=""
+					exists=False
+
+					#Getting Event ID & time	
+					sysinfo = root.getElementsByTagName('System')[0]
+					eId = sysinfo.getElementsByTagName('EventID')[0].firstChild.nodeValue
+					
+					if eId == storsvcEvtId:
+						eTime = sysinfo.getElementsByTagName('TimeCreated')[0].attributes['SystemTime'].value
+						
+						elements = root.getElementsByTagName('Data')
+						for element in elements:
+							if element.attributes['Name'].value == "ParentId":
+								try:
+									parent = element.firstChild.nodeValue
+									#get Serial number in ParentId - everything after last '\'
+									parent_sn = stripUaspMarker(element.firstChild.nodeValue[element.firstChild.nodeValue.rindex('\\')+1:])
+								except:
+									pass
+							if element.attributes['Name'].value == "SerialNumber":
+								try:
+									sn = stripUaspMarker(element.firstChild.nodeValue)
+								except:
+									pass
+							if element.attributes['Name'].value == "VendorId":
+								try:
+									make = element.firstChild.nodeValue
+								except:
+									pass
+							if element.attributes['Name'].value == "ProductId":
+								try:
+									model = element.firstChild.nodeValue
+								except:
+									pass
+							if element.attributes['Name'].value == "FileSystem":
+								try:
+									fs = element.firstChild.nodeValue
+								except:
+									pass
+							if element.attributes['Name'].value == "PartitionStyle":
+								try:
+									partStyle = element.firstChild.nodeValue
+								except:
+									pass
+							if element.attributes['Name'].value == "VolumeCount":
+								try:
+									volCount = element.firstChild.nodeValue
+								except:
+									pass
+							if element.attributes['Name'].value == "Size":
+								try:
+									devSize = element.firstChild.nodeValue
+								except:
+									pass
+						if parent.startswith("USB\\"):
+							#Setting partition style to either MBR or GPT, if filesystem field is not blank
+							if int(partStyle) == 0:
+								partStyle = "MBR"
+							elif int(partStyle) == 1:
+								partStyle = "GPT"
+							else:
+								partStyle = ""
+							
+							#Matching this event info with other connection info for this device
+							for d in devices:
+								if (sn == d.iSerialNumber) or (parent_sn == d.iSerialNumber):
+									#Adding info to device record - if not already present
+									exists=False
+									isoETime = convertTimestamp(eTime)
+									
+									for c in d.getConnections():
+										#Checking if event within 2 secs has already been found & recorded							
+										if timesInRange(isoETime, c.time, 2) and c.connectionType == "Connect":
+											exists=True
+											if str(d.name) == "None" or str(d.name) == "":
+												d.name = make+" "+model
+											#Checking if some fields are empty & can be populated
+											if c.filesystem == "":
+												c.filesystem = fs
+											if c.partStyle == "":
+												c.partStyle = partStyle
+											if c.volumeCount == "":
+												c.volumeCount = volCount
+											if c.deviceSize == "":
+												c.deviceSize = devSize
+											if c.connectionType == "":
+												c.connectionType = "Connect"
+									
 									if not exists:
+										if str(d.name) == "None" or str(d.name) == "":
+											d.name = make+" "+model
 										dc = DeviceConnection()
 										dc.time = isoETime
 										dc.connectionType = "Connect"
-										dc.volumeSerial = vsn
-										dc.filesystem = vfs
-										dc.formatMethod = vfm
+										dc.filesystem = fs
 										dc.partStyle = partStyle
+										dc.volumeCount = volCount
+										dc.deviceSize = devSize
 										d.addConnection(dc)
-								if disconnect:
-									for c in d.getConnections():
-										#Checking if event within 2 secs has already been found & recorded
-										if (timesInRange(isoETime, c.time, 2)) and c.connectionType == "Disconnect":
-											exists=True
-											if dc.ejected == "":
-												dc.ejected = safeEject
-											break
-									if not exists:
-										dc = DeviceConnection()
-										dc.time = isoETime
-										dc.connectionType = "Disconnect"
-										dc.ejected = safeEject
-										d.addConnection(dc)
-									
-								#Adding extra s/n if the two don't match (and if not already noted)
-								if sn != parent_sn:
-									if parent_sn == d.iSerialNumber and not sn in d.altSerials:
-										d.addAltSerial(sn)
-									elif sn == d.iSerialNumber and not parent_sn in d.altSerials:
-										d.addAltSerial(parent_sn)
-		
-		#StorSvc events only found to be recorded on USB connection, not disconnection
-		print("Opening: ", storsvcEvtx)
-		with evtx.Evtx(storsvcEvtx) as storevtxlog:
-			for evtxrecord in storevtxlog.records():
-				#print(evtxrecord.xml())
-				root = minidom.parseString(evtxrecord.xml())
-				eId=""
-				eTime=""
-				parent=""
-				sn=""
-				make=""
-				model=""
-				fs=""
-				partStyle=""
-				volCount=""
-				devSize=""
-				exists=False
-
-				#Getting Event ID & time	
-				sysinfo = root.getElementsByTagName('System')[0]
-				eId = sysinfo.getElementsByTagName('EventID')[0].firstChild.nodeValue
-				
-				if eId == storsvcEvtId:
-					eTime = sysinfo.getElementsByTagName('TimeCreated')[0].attributes['SystemTime'].value
-					
-					elements = root.getElementsByTagName('Data')
-					for element in elements:
-						if element.attributes['Name'].value == "ParentId":
-							try:
-								parent = element.firstChild.nodeValue
-								#get Serial number in ParentId - everything after last '\'
-								parent_sn = stripUaspMarker(element.firstChild.nodeValue[element.firstChild.nodeValue.rindex('\\')+1:])
-							except:
-								pass
-						if element.attributes['Name'].value == "SerialNumber":
-							try:
-								sn = stripUaspMarker(element.firstChild.nodeValue)
-							except:
-								pass
-						if element.attributes['Name'].value == "VendorId":
-							try:
-								make = element.firstChild.nodeValue
-							except:
-								pass
-						if element.attributes['Name'].value == "ProductId":
-							try:
-								model = element.firstChild.nodeValue
-							except:
-								pass
-						if element.attributes['Name'].value == "FileSystem":
-							try:
-								fs = element.firstChild.nodeValue
-							except:
-								pass
-						if element.attributes['Name'].value == "PartitionStyle":
-							try:
-								partStyle = element.firstChild.nodeValue
-							except:
-								pass
-						if element.attributes['Name'].value == "VolumeCount":
-							try:
-								volCount = element.firstChild.nodeValue
-							except:
-								pass
-						if element.attributes['Name'].value == "Size":
-							try:
-								devSize = element.firstChild.nodeValue
-							except:
-								pass
-					if parent.startswith("USB\\"):
-						#Setting partition style to either MBR or GPT, if filesystem field is not blank
-						if int(partStyle) == 0:
-							partStyle = "MBR"
-						elif int(partStyle) == 1:
-							partStyle = "GPT"
-						else:
-							partStyle = ""
-						
-						#Matching this event info with other connection info for this device
-						for d in devices:
-							if (sn == d.iSerialNumber) or (parent_sn == d.iSerialNumber):
-								#Adding info to device record - if not already present
-								exists=False
-								isoETime=datetime.strptime(eTime,'%Y-%m-%d %H:%M:%S.%f').replace(tzinfo=timezone.utc).isoformat()
-								
-								for c in d.getConnections():
-									#Checking if event within 2 secs has already been found & recorded							
-									if timesInRange(isoETime, c.time, 2) and c.connectionType == "Connect":
-										exists=True
-										if str(d.name) == "None" or str(d.name) == "":
-											d.name = make+" "+model
-										#Checking if some fields are empty & can be populated
-										if c.filesystem == "":
-											c.filesystem = fs
-										if c.partStyle == "":
-											c.partStyle = partStyle
-										if c.volumeCount == "":
-											c.volumeCount = volCount
-										if c.deviceSize == "":
-											c.deviceSize = devSize
-										if c.connectionType == "":
-											c.connectionType = "Connect"
-								
-								if not exists:
-									if str(d.name) == "None" or str(d.name) == "":
-										d.name = make+" "+model
-									dc = DeviceConnection()
-									dc.time = isoETime
-									dc.connectionType = "Connect"
-									dc.filesystem = fs
-									dc.partStyle = partStyle
-									dc.volumeCount = volCount
-									dc.deviceSize = devSize
-									d.addConnection(dc)
-									
-								#Checking for other info gaps from the Registry
-								if d.name == "":
-									d.name = make + " " + model
-
+										
+									#Checking for other info gaps from the Registry
+									if d.name == "":
+										d.name = make + " " + model
+		else:
+			print(f"File not found: {storsvcEvtx} - parsing skipped")
+			
 	#Parsing LNK files to get other drive letters
 	for usrdir in userfolders:
-		lnkdir=usrdir+"/AppData/Roaming/Microsoft/Windows/Recent/"
-		if os.path.isdir(lnkdir) and len(lnkdir) != 0:
-			for f in os.listdir(lnkdir):
+		currusrlnkhydir = usrdir+"/AppData/Roaming/Microsoft/Windows/Recent/"
+		if os.path.isdir(currusrlnkhydir) and len(currusrlnkhydir) != 0:
+			for f in os.listdir(currusrlnkhydir):
 				if f.endswith(".lnk"):
-					fpath=lnkdir+f
+					fpath=currusrlnkhydir+f
 					try:
-						data=os.popen('lnkparse -j \"'+fpath+'\"').read()
+						data=os.popen('lnkparse -j \"'+fpath+'\" 2>/dev/null').read()
 						
 						if "DRIVE_REMOVABLE" in data:
 							fmtime = datetime.fromtimestamp(int(os.path.getctime(fpath))).replace(tzinfo=timezone.utc).isoformat()
@@ -1070,7 +1130,10 @@ if __name__ == "__main__":
 					except Exception:
 						#empty value
 						pass
-
+		else:
+			if ("Users/All Users/" not in currusrlnkhydir) and ("Users/Default/" not in currusrlnkhydir) and ("Users/Public/" not in currusrlnkhydir):
+				print(f"User Recent folder not found or empty at: {currusrlnkhydir} - parsing skipped")
+		
 	#Print output in CSV or key-value pair format
 	print()
 	if csvout:

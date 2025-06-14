@@ -1,11 +1,11 @@
 # parseusbs
-parseUSBs version 1.7
+parseUSBs version 1.8
 Parses USB connection artifacts from a mounted Windows volume or offline Registry hives  
 
 Registry parser, to extract USB connection artefacts from SYSTEM, SOFTWARE, and NTUSER.dat hives as well as custom event logs and LNK files (only to get drive letters) if running against a mounted Windows volume or mounted KAPE triage image of a Windows system  
 
 Author: Kathryn Hedley, khedley@khyrenz.com  
-Copyright 2024 Kathryn Hedley, Khyrenz Ltd  
+Copyright 2025 Kathryn Hedley, Khyrenz Ltd  
 
 ### Dependencies
 > **pip3 install regipy python-evtx LnkParse3**
