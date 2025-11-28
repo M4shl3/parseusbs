@@ -44,7 +44,7 @@
 
 # Importing libraries
 import sys, os, stat, ctypes, platform, base64, time
-import Evtx.Evtx as evtx
+import evtx
 import LnkParse3
 from xml.dom import minidom
 from datetime import datetime,timedelta,timezone
