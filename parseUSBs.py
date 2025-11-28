@@ -1083,6 +1083,7 @@ if __name__ == "__main__":
 		else:
 			print(f"File not found: {storsvcEvtx} - parsing skipped")
 			
+	userfolders = userfolders if 'userfolders' in locals() else []		
 	#Parsing LNK files to get other drive letters
 	for usrdir in userfolders:
 		currusrlnkhydir = usrdir+"/AppData/Roaming/Microsoft/Windows/Recent/"
